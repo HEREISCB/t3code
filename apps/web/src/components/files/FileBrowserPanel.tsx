@@ -5,10 +5,12 @@ import type {
 import type { EnvironmentId, ProjectEntry } from "@t3tools/contracts";
 import { FileTree, useFileTree, useFileTreeSearch, useFileTreeSelector } from "@pierre/trees/react";
 import { serializeComposerFileLink } from "@t3tools/shared/composerTrigger";
-import { ChevronsDownUpIcon, ChevronsUpDownIcon, RotateCw } from "lucide-react";
+import { ChevronsDownUpIcon, ChevronsUpDownIcon, Eye, EyeOff, RotateCw } from "lucide-react";
 import { useEffect, useMemo, useRef } from "react";
 
 import { Button } from "~/components/ui/button";
+import { Toggle } from "~/components/ui/toggle";
+import * as Schema from "effect/Schema";
 import { InputGroup, InputGroupInput } from "~/components/ui/input-group";
 import { toastManager } from "~/components/ui/toast";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "~/components/ui/tooltip";
@@ -17,6 +19,7 @@ import { writeTextToClipboard } from "~/hooks/useCopyToClipboard";
 import { useTheme } from "~/hooks/useTheme";
 import { useWorkspaceMutationRefresh } from "~/hooks/useWorkspaceMutationRefresh";
 import { cn } from "~/lib/utils";
+import { useLocalStorage } from "~/hooks/useLocalStorage";
 import { readLocalApi } from "~/localApi";
 import { T3_PIERRE_ICONS } from "~/pierre-icons";
 import { PIERRE_TREE_UNSAFE_CSS, pierreTreeStyle } from "~/pierre-tree-theme";
@@ -41,6 +44,32 @@ interface FileBrowserPanelProps {
 
 function treePath(entry: ProjectEntry): string {
   return entry.kind === "directory" ? `${entry.path}/` : entry.path;
+}
+
+const SHOW_HIDDEN_FILES_STORAGE_KEY = "t3code:file-browser-show-hidden";
+
+function ShowHiddenFilesButton(props: { showHidden: boolean; onToggle: () => void }) {
+  const label = props.showHidden
+    ? "Hide hidden and ignored files"
+    : "Show hidden and ignored files";
+  return (
+    <Tooltip>
+      <TooltipTrigger
+        render={
+          <Toggle
+            pressed={props.showHidden}
+            onPressedChange={props.onToggle}
+            variant="ghost"
+            size="xs"
+            aria-label={label}
+          />
+        }
+      >
+        {props.showHidden ? <Eye className="size-3.5" /> : <EyeOff className="size-3.5" />}
+      </TooltipTrigger>
+      <TooltipPopup>{label}</TooltipPopup>
+    </Tooltip>
+  );
 }
 
 function RefreshFilesButton(props: { isPending: boolean; onRefresh: () => void }) {
@@ -104,7 +133,12 @@ export default function FileBrowserPanel({
 }: FileBrowserPanelProps) {
   const { resolvedTheme } = useTheme();
   const composerRef = useComposerHandleContext();
-  const entriesQuery = useProjectEntriesQuery(environmentId, cwd);
+  const [showHidden, setShowHidden] = useLocalStorage(
+    SHOW_HIDDEN_FILES_STORAGE_KEY,
+    false,
+    Schema.Boolean,
+  );
+  const entriesQuery = useProjectEntriesQuery(environmentId, cwd, showHidden);
   const entries = entriesQuery.data?.entries ?? [];
   const entryKinds = useMemo(
     () => new Map(entries.map((entry) => [entry.path, entry.kind] as const)),
@@ -377,6 +411,10 @@ export default function FileBrowserPanel({
         data-surface-subheader
       >
         <RefreshFilesButton isPending={entriesQuery.isPending} onRefresh={handleRefresh} />
+        <ShowHiddenFilesButton
+          showHidden={showHidden}
+          onToggle={() => setShowHidden((value) => !value)}
+        />
         <FileSearchField
           name="project-files-search"
           ariaLabel={`Search ${projectName} files`}
