@@ -1,6 +1,7 @@
 import { useAtomRefresh, useAtomValue } from "@effect/atom-react";
 import type {
   EnvironmentId,
+  ProjectEntry,
   ProjectListEntriesResult,
   ProjectReadFileResult,
 } from "@t3tools/contracts";
@@ -22,6 +23,9 @@ const EMPTY_PROJECT_FILE_PATH = "";
 const EMPTY_PROJECT_FILE_QUERY_ATOM = Atom.make(
   AsyncResult.initial<ProjectReadFileResult, never>(false),
 ).pipe(Atom.withLabel("project-file-query:empty"));
+const EMPTY_PROJECT_ENTRIES_QUERY_ATOM = Atom.make(
+  AsyncResult.initial<ProjectListEntriesResult, never>(false),
+).pipe(Atom.withLabel("project-entries-query:empty"));
 function optimisticFileAtom(environmentId: EnvironmentId, cwd: string, relativePath: string) {
   return projectEnvironment.optimisticFile({ environmentId, cwd, relativePath });
 }
@@ -148,6 +152,27 @@ export function useProjectEntriesQuery(
     isPending: result.waiting,
     refresh,
   };
+}
+
+const EMPTY_PROJECT_ENTRIES: ReadonlyArray<ProjectEntry> = [];
+
+/**
+ * Workspace entries as a plain list for consumers that only read them (no
+ * refresh), such as resolving bare filenames in rendered markdown. With
+ * `enabled` false or no environment it subscribes to a static empty atom, so
+ * a consumer that only sometimes needs the listing never triggers a scan.
+ */
+export function useProjectEntriesList(
+  environmentId: EnvironmentId | null,
+  cwd: string,
+  enabled: boolean,
+): ReadonlyArray<ProjectEntry> {
+  const atom =
+    enabled && environmentId !== null
+      ? getProjectEntriesQueryAtom(environmentId, cwd)
+      : EMPTY_PROJECT_ENTRIES_QUERY_ATOM;
+  const result = useAtomValue(atom);
+  return result?._tag === "Success" ? result.value.entries : EMPTY_PROJECT_ENTRIES;
 }
 
 /**

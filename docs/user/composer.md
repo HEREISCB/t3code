@@ -103,6 +103,12 @@ readable and T3 Code shows a warning.
 Mobile shows the full saved quote and its comment in sent messages. It does not offer
 **Cite in composer** or navigation to a quote's source.
 
+## Files in messages
+
+A file the agent names in inline code, such as `schema.sql` or `src/index.ts`, is a link: select it
+to open the file in the file viewer. A bare filename with no folder links only when exactly one file
+in the workspace has that name, so a link never opens the wrong file.
+
 ## Images and videos in messages
 
 On web, desktop, and mobile, select a link to an image or video to open it inside T3 Code.

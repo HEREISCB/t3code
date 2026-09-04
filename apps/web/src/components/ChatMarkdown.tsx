@@ -130,6 +130,9 @@ import {
   extractMarkdownLinkHrefs,
   isWindowsDrivePathHref,
   normalizeMarkdownLinkDestination,
+  buildWorkspaceBasenameIndex,
+  isBareFilenameCodeSpan,
+  resolveBareFilenameFileLinkMeta,
   resolveInlineCodeFileLinkMeta,
   resolveMarkdownFileLinkMeta,
   rewriteMarkdownFileUriHref,
@@ -138,6 +141,7 @@ import {
   type MarkdownFileLinkMeta,
 } from "../markdown-links";
 import { readLocalApi } from "../localApi";
+import { useProjectEntriesList } from "./files/projectFilesQueryState";
 import { useAssetUrlRefresh, useAssetUrlState } from "../assets/assetUrls";
 import { cn } from "../lib/utils";
 import { useRemoteOpenResolution, type RemoteOpenMode } from "../remoteOpen";
@@ -2086,17 +2090,36 @@ function ChatMarkdown({
     }
     return metaByHref;
   }, [cwd, imageBaseDir, text]);
+  const inlineCodeSpans = useMemo(() => extractInlineCodeSpans(text), [text]);
+  // Bare filenames (`schema.sql`) need the workspace listing to resolve; only
+  // messages that mention one subscribe to it, so ordinary replies never
+  // trigger a workspace scan.
+  const mentionsBareFilename = useMemo(
+    () => inlineCodeSpans.some(isBareFilenameCodeSpan),
+    [inlineCodeSpans],
+  );
+  const workspaceEntries = useProjectEntriesList(
+    threadRef?.environmentId ?? environmentId,
+    cwd ?? "",
+    mentionsBareFilename && cwd !== undefined,
+  );
+  const workspaceBasenameIndex = useMemo(
+    () => buildWorkspaceBasenameIndex(workspaceEntries),
+    [workspaceEntries],
+  );
   const inlineCodeFileLinkMetaByText = useMemo(() => {
     const metaByText = new Map<string, MarkdownFileLinkMeta>();
-    for (const span of extractInlineCodeSpans(text)) {
+    for (const span of inlineCodeSpans) {
       if (metaByText.has(span)) continue;
-      const meta = resolveInlineCodeFileLinkMeta(span, cwd, imageBaseDir ?? cwd);
+      const meta =
+        resolveInlineCodeFileLinkMeta(span, cwd, imageBaseDir ?? cwd) ??
+        resolveBareFilenameFileLinkMeta(span, workspaceBasenameIndex, cwd);
       if (meta) {
         metaByText.set(span, meta);
       }
     }
     return metaByText;
-  }, [cwd, imageBaseDir, text]);
+  }, [cwd, imageBaseDir, inlineCodeSpans, workspaceBasenameIndex]);
   const fileLinkParentSuffixByPath = useMemo(() => {
     const filePaths = [
       ...[...markdownFileLinkMetaByHref.values()].map((meta) => meta.filePath),

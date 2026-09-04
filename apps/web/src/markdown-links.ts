@@ -96,6 +96,48 @@ export function resolveInlineCodeFileLinkMeta(
   return resolveMarkdownFileLinkMeta(candidate, cwd, baseDir);
 }
 
+/** `schema.sql` / `Makefile.dev`: a single filename with an extension and no directory. */
+const BARE_FILENAME_PATTERN = /^[^\s`\\/]+\.[A-Za-z0-9_-]+$/;
+
+export function isBareFilenameCodeSpan(codeText: string): boolean {
+  return BARE_FILENAME_PATTERN.test(codeText.trim());
+}
+
+/**
+ * Basename -> workspace-relative path for every file in the listing. A
+ * basename that appears more than once maps to `null`, so a lookup can tell
+ * "ambiguous" apart from "absent" and neither one gets linked.
+ */
+export function buildWorkspaceBasenameIndex(
+  entries: ReadonlyArray<{ readonly path: string; readonly kind: "file" | "directory" }>,
+): ReadonlyMap<string, string | null> {
+  const index = new Map<string, string | null>();
+  for (const entry of entries) {
+    if (entry.kind !== "file") continue;
+    const basename = entry.path.slice(entry.path.lastIndexOf("/") + 1);
+    index.set(basename, index.has(basename) ? null : entry.path);
+  }
+  return index;
+}
+
+/**
+ * A bare filename in inline code carries no directory, so unlike a path span
+ * it can only link by looking the name up in the workspace listing — and only
+ * when exactly one file has that name. Ambiguity or a miss stays plain text
+ * so a chip never opens the wrong file.
+ */
+export function resolveBareFilenameFileLinkMeta(
+  codeText: string,
+  basenameIndex: ReadonlyMap<string, string | null>,
+  cwd: string | undefined,
+): MarkdownFileLinkMeta | null {
+  const trimmed = codeText.trim();
+  if (!cwd || !BARE_FILENAME_PATTERN.test(trimmed)) return null;
+  const relativePath = basenameIndex.get(trimmed);
+  if (typeof relativePath !== "string") return null;
+  return resolveMarkdownFileLinkMeta(relativePath, cwd, cwd);
+}
+
 export function resolveMarkdownFileLinkMeta(
   href: string | undefined,
   cwd?: string,

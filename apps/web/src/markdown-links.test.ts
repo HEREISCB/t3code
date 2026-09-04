@@ -4,7 +4,9 @@ import { renderToStaticMarkup } from "react-dom/server";
 import ReactMarkdown from "react-markdown";
 
 import {
+  buildWorkspaceBasenameIndex,
   extractMarkdownLinkHrefs,
+  resolveBareFilenameFileLinkMeta,
   isWindowsDrivePathHref,
   resolveInlineCodeFileLinkMeta,
   resolveMarkdownFileLinkMeta,
@@ -465,5 +467,37 @@ describe("directory paths with a trailing separator", () => {
   it("does not produce an empty label for the filesystem root", () => {
     const meta = resolveMarkdownFileLinkMeta("/tmp/", "/repo/project");
     expect(meta?.basename).not.toBe("");
+  });
+});
+
+describe("resolveBareFilenameFileLinkMeta", () => {
+  const index = buildWorkspaceBasenameIndex([
+    { path: "supabase/schema_v29_rcs_channel.sql", kind: "file" },
+    { path: "src/index.ts", kind: "file" },
+    { path: "packages/a/index.ts", kind: "file" },
+    { path: "docs", kind: "directory" },
+  ]);
+
+  it("links a bare filename that exists exactly once in the workspace", () => {
+    expect(
+      resolveBareFilenameFileLinkMeta("schema_v29_rcs_channel.sql", index, "/repo"),
+    ).toMatchObject({
+      targetPath: "/repo/supabase/schema_v29_rcs_channel.sql",
+      basename: "schema_v29_rcs_channel.sql",
+    });
+  });
+
+  it("stays plain text when the name is ambiguous or absent", () => {
+    expect(resolveBareFilenameFileLinkMeta("index.ts", index, "/repo")).toBeNull();
+    expect(resolveBareFilenameFileLinkMeta("missing.sql", index, "/repo")).toBeNull();
+  });
+
+  it("ignores spans that are not a lone filename", () => {
+    expect(resolveBareFilenameFileLinkMeta("template/create", index, "/repo")).toBeNull();
+    expect(resolveBareFilenameFileLinkMeta("docs", index, "/repo")).toBeNull();
+    expect(resolveBareFilenameFileLinkMeta("npm run build", index, "/repo")).toBeNull();
+    expect(
+      resolveBareFilenameFileLinkMeta("schema_v29_rcs_channel.sql", index, undefined),
+    ).toBeNull();
   });
 });
