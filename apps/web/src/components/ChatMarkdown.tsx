@@ -43,6 +43,7 @@ import {
   type LucideIcon,
 } from "lucide-react";
 import {
+  type AssetResource,
   AssetWorkspaceAssetNotFoundError,
   AuthPreviewOperateScope,
   type EditorId,
@@ -170,6 +171,8 @@ import { previewEnvironment } from "../state/preview";
 import { useAtomCommand } from "../state/use-atom-command";
 import { useAtomQueryRunner } from "../state/use-atom-query-runner";
 import { projectEnvironment } from "../state/projects";
+import { useProjectPathSearch } from "../state/queries";
+import { useAssetUrlState } from "../assets/assetUrls";
 import { filesystemEnvironment } from "../state/filesystem";
 import {
   claimWorkspaceBasenameLookup,
@@ -957,6 +960,49 @@ function useChatMarkdownState({
   };
 }
 
+/**
+ * An agent that moved into a subfolder embeds files relative to it. When the path is missing
+ * from the workspace root, the embed shows the one workspace file whose path ends with it.
+ */
+function MarkdownWorkspaceMedia({
+  lookupPath,
+  ...props
+}: ComponentProps<typeof ChatMarkdownAssetImage> & {
+  readonly resource: Extract<AssetResource, { readonly _tag: "media-file" }>;
+  readonly lookupPath: string | null;
+}) {
+  // The same URL query the embed reads, so checking it adds no request.
+  const missing =
+    useAssetUrlState(props.environmentId, props.resource, props.workspaceMutationId)._tag ===
+    "Failure";
+  const root = props.workspaceRoot ?? null;
+  const lookup = missing && root !== null && lookupPath !== null ? lookupPath : null;
+  const query = lookup === null || root === null ? null : workspaceLinkLookupQuery(lookup, root);
+  const { entries } = useProjectPathSearch(
+    {
+      environmentId: props.environmentId,
+      cwd: query === null ? null : root,
+      query,
+      kind: "file",
+    },
+    WORKSPACE_BASENAME_LOOKUP_LIMIT,
+  );
+  const match =
+    query === null || lookup === null || root === null
+      ? null
+      : pickWorkspaceLinkMatch(lookup, root, entries);
+  return (
+    <ChatMarkdownAssetImage
+      {...props}
+      resource={
+        match === null || !props.workspaceRoot
+          ? props.resource
+          : { ...props.resource, path: resolveWorkspaceFilePath(match, props.workspaceRoot) }
+      }
+    />
+  );
+}
+
 const ChatMarkdownRendererContext = React.createContext<
   ReturnType<typeof useChatMarkdownState>["componentState"]
 >(null!);
@@ -1587,7 +1633,11 @@ const CHAT_MARKDOWN_COMPONENTS = {
     }
     if (imageSource._tag === "WorkspaceFile" && threadRef) {
       return (
-        <ChatMarkdownAssetImage
+        <MarkdownWorkspaceMedia
+          lookupPath={
+            resolveMarkdownFileLinkMeta(srcString, cwd, imageBaseDir ?? cwd)?.workspaceLookupPath ??
+            null
+          }
           environmentId={threadRef.environmentId}
           resource={{
             _tag: "media-file",

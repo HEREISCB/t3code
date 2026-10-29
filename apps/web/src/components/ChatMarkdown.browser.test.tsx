@@ -35,6 +35,35 @@ vi.mock(import("../state/use-atom-query-runner"), async (original) => ({
     family === filesystemEnvironment.getMetadata ? filesystemMetadata : workspaceSearch) as never,
 }));
 
+// Workspace embeds: a URL per host path (any other path is missing) and the files search finds.
+const workspaceEmbeds = vi.hoisted(() => ({
+  urls: null as Map<string, string> | null,
+  entries: [] as Array<{ path: string; kind: "file" }>,
+}));
+vi.mock(import("../assets/assetUrls"), async (original) => {
+  const actual = await original();
+  return {
+    ...actual,
+    useAssetUrlState: ((...args: Parameters<typeof actual.useAssetUrlState>) => {
+      const state = actual.useAssetUrlState(...args);
+      const resource = args[1];
+      if (workspaceEmbeds.urls === null || resource?._tag !== "media-file") return state;
+      const url = workspaceEmbeds.urls.get(resource.path);
+      return url === undefined ? { _tag: "Failure" } : { _tag: "Success", url, expiresAt: 0 };
+    }) as typeof actual.useAssetUrlState,
+  };
+});
+vi.mock(import("../state/queries"), async (original) => {
+  const actual = await original();
+  return {
+    ...actual,
+    useProjectPathSearch: ((...args: Parameters<typeof actual.useProjectPathSearch>) => ({
+      ...actual.useProjectPathSearch(...args),
+      entries: args[0].query === null ? [] : workspaceEmbeds.entries,
+    })) as typeof actual.useProjectPathSearch,
+  };
+});
+
 // Atoms derived from the server config run in the real registry over a missing config.
 vi.mock(import("../state/server"), async (original) => {
   const actual = await original();
@@ -151,6 +180,8 @@ function setup() {
   renderDiagram.mockReset();
   workspaceSearch.mockReset().mockResolvedValue(AsyncResult.success({ entries: [] }));
   filesystemMetadata.mockReset().mockResolvedValue(AsyncResult.success({ entries: [null] }));
+  workspaceEmbeds.urls = null;
+  workspaceEmbeds.entries = [];
 }
 
 function renderText(text: string, props: Partial<Parameters<typeof ChatMarkdown>[0]> = {}) {
@@ -465,6 +496,17 @@ describe("ChatMarkdown workspace file opens", () => {
 
     expect(openFile).toHaveBeenCalledExactlyOnceWith(threadRef, "/elsewhere/b.md", 9);
     expect(workspaceSearch).toHaveBeenCalledOnce();
+  });
+
+  it("embeds a relative file from the agent's subfolder when the root has none", async () => {
+    setup();
+    const pixel = "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7";
+    workspaceEmbeds.urls = new Map([["/tmp/project/videos/ep1/out/poster.png", pixel]]);
+    workspaceEmbeds.entries = [{ path: "videos/ep1/out/poster.png", kind: "file" }];
+    await using screen = await renderText("![poster](out/poster.png)", { threadRef });
+    await expect
+      .element(screen.getByRole("button", { name: "Preview poster" }))
+      .toHaveAttribute("src", pixel);
   });
 });
 
